@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/nebojsaj1726/proxy-pool/internal/api"
 	"github.com/nebojsaj1726/proxy-pool/internal/auth"
+	"github.com/nebojsaj1726/proxy-pool/internal/core"
 	"github.com/nebojsaj1726/proxy-pool/internal/db"
 	"github.com/nebojsaj1726/proxy-pool/internal/middleware"
 )
@@ -26,6 +29,18 @@ func main() {
 
 	database := db.ConnectAndMigrate()
 
+	pool, err := core.LoadConfig("./config.yaml")
+	if err != nil {
+		log.Fatal("failed to load proxy config:", err)
+	}
+
+	go func() {
+		for {
+			pool.HealthCheck(3 * time.Second)
+			time.Sleep(10 * time.Second)
+		}
+	}()
+
 	mux := http.NewServeMux()
 
 	mux.Handle("/auth/register", auth.RegisterHandler(database))
@@ -35,12 +50,8 @@ func main() {
 	})
 
 	protected := http.NewServeMux()
-	protected.HandleFunc("/proxies", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode([]string{"proxy1", "proxy2"})
-	})
-	protected.HandleFunc("/allocate", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"allocated": "proxy1"})
-	})
+	protected.Handle("/proxies", api.ListProxiesHandler(pool))
+	protected.Handle("/allocate", api.AllocateProxyHandler(pool))
 
 	mux.Handle("/proxies", auth.JWTMiddleware(protected))
 	mux.Handle("/allocate", auth.JWTMiddleware(protected))

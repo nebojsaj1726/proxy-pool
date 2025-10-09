@@ -4,12 +4,15 @@
 *.so
 *.dylib
 
+
 .env
 .env.*
 
 *.out
 
 *.db
+
+config.yaml
 
 .vscode/
 .idea/
