@@ -8,11 +8,13 @@ import (
 )
 
 type Proxy struct {
-	URL      string
-	Alive    bool
-	LastTest time.Time
-	CheckURL string
-	Timeout  time.Duration
+	URL        string
+	Alive      bool
+	LastTest   time.Time
+	CheckURL   string
+	Timeout    time.Duration
+	UsageCount int
+	FailCount  int
 }
 
 func (p *Proxy) Test(timeout time.Duration) bool {

@@ -37,11 +37,13 @@ func LoadConfig(path string) (*Pool, error) {
 	proxies := make([]*Proxy, len(cfg.Proxies))
 	for i, u := range cfg.Proxies {
 		proxies[i] = &Proxy{
-			URL:      u,
-			Alive:    true,
-			LastTest: time.Now(),
-			CheckURL: cfg.HealthCheckURL,
-			Timeout:  time.Duration(cfg.TimeoutSeconds) * time.Second,
+			URL:        u,
+			Alive:      true,
+			LastTest:   time.Now(),
+			CheckURL:   cfg.HealthCheckURL,
+			Timeout:    time.Duration(cfg.TimeoutSeconds) * time.Second,
+			UsageCount: 0,
+			FailCount:  0,
 		}
 	}
 
@@ -52,19 +54,25 @@ func (p *Pool) Allocate() (*Proxy, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if len(p.Proxies) == 0 {
-		return nil, errors.New("no proxies in pool")
-	}
+	var chosen *Proxy
+	minUsage := int(^uint(0) >> 1)
 
-	for i := 0; i < len(p.Proxies); i++ {
-		p.index = (p.index + 1) % len(p.Proxies)
-		proxy := p.Proxies[p.index]
-		if proxy.Alive {
-			return proxy, nil
+	for _, proxy := range p.Proxies {
+		if proxy.Alive && proxy.UsageCount <= minUsage {
+			if proxy.UsageCount < minUsage || chosen == nil {
+				chosen = proxy
+				minUsage = proxy.UsageCount
+			}
 		}
 	}
 
-	return nil, errors.New("no alive proxies")
+	if chosen == nil {
+		return nil, errors.New("no alive proxies")
+	}
+
+	chosen.UsageCount++
+	p.index = (p.index + 1) % len(p.Proxies)
+	return chosen, nil
 }
 
 func (p *Pool) HealthCheck(timeout time.Duration) {
@@ -78,8 +86,17 @@ func (p *Pool) HealthCheck(timeout time.Duration) {
 		wg.Add(1)
 		go func(pr *Proxy) {
 			defer wg.Done()
-			alive := pr.Test(timeout)
-			log.Printf("Health check: %s -> alive=%v", pr.URL, alive)
+			if pr.Test(timeout) {
+				pr.FailCount = 0
+				pr.Alive = true
+				log.Printf("Health check OK: %s", pr.URL)
+			} else {
+				pr.FailCount++
+				if pr.FailCount >= 3 {
+					pr.Alive = false
+					log.Printf("Proxy marked dead after 3 fails: %s", pr.URL)
+				}
+			}
 		}(proxy)
 	}
 	wg.Wait()
