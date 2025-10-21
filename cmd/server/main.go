@@ -1,65 +1,29 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
-	"net/http"
-	"time"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/joho/godotenv"
-	"github.com/nebojsaj1726/proxy-pool/internal/api"
-	"github.com/nebojsaj1726/proxy-pool/internal/auth"
-	"github.com/nebojsaj1726/proxy-pool/internal/core"
-	"github.com/nebojsaj1726/proxy-pool/internal/db"
-	"github.com/nebojsaj1726/proxy-pool/internal/middleware"
+	"github.com/nebojsaj1726/proxy-pool/internal/app"
 )
 
-type Proxy struct {
-	ID     string `json:"id"`
-	Host   string `json:"host"`
-	Port   int    `json:"port"`
-	Proto  string `json:"proto"`
-	Status string `json:"status"`
-}
-
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using system env")
-	}
-
-	database := db.ConnectAndMigrate()
-
-	pool, err := core.LoadConfig("./config.yaml")
+	app, err := app.NewApp()
 	if err != nil {
-		log.Fatal("failed to load proxy config:", err)
+		log.Fatalf("Failed to initialize app: %v", err)
 	}
 
 	go func() {
-		for {
-			pool.HealthCheck(3 * time.Second)
-			time.Sleep(10 * time.Second)
+		if err := app.Start(); err != nil {
+			log.Fatalf("App error: %v", err)
 		}
 	}()
 
-	mux := http.NewServeMux()
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
 
-	mux.Handle("/auth/register", auth.RegisterHandler(database))
-	mux.Handle("/auth/login", auth.LoginHandler(database))
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
-
-	protected := http.NewServeMux()
-	protected.Handle("/proxies", api.ListProxiesHandler(pool))
-	protected.Handle("/allocate", api.AllocateProxyHandler(pool))
-
-	mux.Handle("/proxies", auth.JWTMiddleware(protected))
-	mux.Handle("/allocate", auth.JWTMiddleware(protected))
-
-	loggedMux := middleware.LoggingMiddleware(mux)
-
-	log.Println("Server running on :8080")
-	if err := http.ListenAndServe(":8080", loggedMux); err != nil {
-		log.Fatal("Server error:", err)
-	}
+	app.Stop()
 }

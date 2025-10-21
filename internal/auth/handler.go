@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/nebojsaj1726/proxy-pool/internal/db"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -20,7 +20,7 @@ type User struct {
 	PasswordHash string
 }
 
-func RegisterHandler(db *sql.DB) http.HandlerFunc {
+func RegisterHandler(store db.UserStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Username string `json:"username"`
@@ -38,8 +38,7 @@ func RegisterHandler(db *sql.DB) http.HandlerFunc {
 		}
 		id := uuid.New().String()
 
-		_, err = db.Exec("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
-			id, input.Username, string(hash))
+		err = store.CreateUser(id, input.Username, string(hash))
 		if err != nil {
 			http.Error(w, "username already exists", http.StatusConflict)
 			return
@@ -49,7 +48,7 @@ func RegisterHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func LoginHandler(db *sql.DB) http.HandlerFunc {
+func LoginHandler(store db.UserStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Username string `json:"username"`
@@ -60,23 +59,21 @@ func LoginHandler(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		var user User
-		err := db.QueryRow("SELECT id, password_hash FROM users WHERE username = ?", input.Username).
-			Scan(&user.ID, &user.PasswordHash)
+		id, hash, err := store.GetUserByUsername(input.Username)
 		if err != nil {
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
 		}
 
-		if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)) != nil {
+		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(input.Password)) != nil {
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
 		}
 
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"user_id":  user.ID,
+			"user_id":  id,
 			"username": input.Username,
-			"exp":      time.Now().Add(time.Hour * 24).Unix(),
+			"exp":      time.Now().Add(24 * time.Hour).Unix(),
 		})
 		tokenString, err := token.SignedString(jwtSecret)
 		if err != nil {

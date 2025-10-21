@@ -2,47 +2,48 @@ package auth
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
-func setupTestDB(t *testing.T) *sql.DB {
-	dbPath := "file::memory:?cache=shared"
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		t.Fatalf("failed to open in-memory db: %v", err)
+type mockStore struct {
+	users map[string]string
+}
+
+func newMockStore() *mockStore {
+	return &mockStore{users: make(map[string]string)}
+}
+
+func (m *mockStore) CreateUser(id, username, passwordHash string) error {
+	if _, exists := m.users[username]; exists {
+		return fmt.Errorf("username exists")
 	}
-	_, err = db.Exec(`
-		CREATE TABLE users (
-			id TEXT PRIMARY KEY,
-			username TEXT UNIQUE NOT NULL,
-			password_hash TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-	`)
-	if err != nil {
-		t.Fatalf("failed to migrate schema: %v", err)
+	m.users[username] = passwordHash
+	return nil
+}
+
+func (m *mockStore) GetUserByUsername(username string) (string, string, error) {
+	hash, ok := m.users[username]
+	if !ok {
+		return "", "", fmt.Errorf("user not found")
 	}
-	return db
+	return "mock-id", hash, nil
 }
 
 func TestRegisterAndLogin(t *testing.T) {
 	os.Setenv("JWT_SECRET", "testsecret")
-	db := setupTestDB(t)
-	defer db.Close()
+	store := newMockStore()
 
 	regBody := `{"username":"alice","password":"secret"}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewBufferString(regBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	RegisterHandler(db).ServeHTTP(w, req)
+	RegisterHandler(store).ServeHTTP(w, req)
 
 	if w.Result().StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", w.Result().StatusCode)
@@ -53,7 +54,7 @@ func TestRegisterAndLogin(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 
-	LoginHandler(db).ServeHTTP(w, req)
+	LoginHandler(store).ServeHTTP(w, req)
 
 	if w.Result().StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Result().StatusCode)

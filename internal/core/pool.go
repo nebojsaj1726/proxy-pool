@@ -11,10 +11,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type Pooler interface {
+	Allocate() (*Proxy, error)
+	HealthCheck(timeout time.Duration)
+	AliveProxies() []*Proxy
+}
+
 type Pool struct {
 	Proxies []*Proxy
 	mu      sync.Mutex
-	index   int
 }
 
 type Config struct {
@@ -47,7 +52,7 @@ func LoadConfig(path string) (*Pool, error) {
 		}
 	}
 
-	return &Pool{Proxies: proxies, index: 0}, nil
+	return &Pool{Proxies: proxies}, nil
 }
 
 func (p *Pool) Allocate() (*Proxy, error) {
@@ -70,8 +75,9 @@ func (p *Pool) Allocate() (*Proxy, error) {
 		return nil, errors.New("no alive proxies")
 	}
 
+	chosen.mu.Lock()
 	chosen.UsageCount++
-	p.index = (p.index + 1) % len(p.Proxies)
+	chosen.mu.Unlock()
 	return chosen, nil
 }
 
@@ -84,18 +90,22 @@ func (p *Pool) HealthCheck(timeout time.Duration) {
 	var wg sync.WaitGroup
 	for _, proxy := range proxies {
 		wg.Add(1)
-		go func(pr *Proxy) {
+			go func(pr *Proxy) {
 			defer wg.Done()
 			if pr.Test(timeout) {
-				pr.FailCount = 0
-				pr.Alive = true
-				log.Printf("Health check OK: %s", pr.URL)
+					pr.mu.Lock()
+					pr.FailCount = 0
+					pr.Alive = true
+					pr.mu.Unlock()
+					log.Printf("Health check OK: %s", pr.URL)
 			} else {
-				pr.FailCount++
-				if pr.FailCount >= 3 {
-					pr.Alive = false
-					log.Printf("Proxy marked dead after 3 fails: %s", pr.URL)
-				}
+					pr.mu.Lock()
+					pr.FailCount++
+					if pr.FailCount >= 3 {
+						pr.Alive = false
+						log.Printf("Proxy marked dead after 3 fails: %s", pr.URL)
+					}
+					pr.mu.Unlock()
 			}
 		}(proxy)
 	}
