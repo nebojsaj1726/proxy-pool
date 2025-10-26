@@ -80,5 +80,12 @@ func (a *App) Stop() {
 		a.Health.Stop()
 	}
 
+	if a.Pool != nil {
+		if pool, ok := a.Pool.(*core.Pool); ok {
+			pool.Close()
+			log.Println("[pool] all proxy connections closed")
+		}
+	}
+
 	log.Println("Server stopped gracefully")
 }

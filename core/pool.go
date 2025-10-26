@@ -3,6 +3,8 @@ package core
 import (
 	"errors"
 	"log"
+	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -41,6 +43,16 @@ func LoadConfig(path string) (*Pool, error) {
 
 	proxies := make([]*Proxy, len(cfg.Proxies))
 	for i, u := range cfg.Proxies {
+		proxyURL, err := url.Parse(u)
+		if err != nil {
+			log.Printf("Skipping invalid proxy URL %s: %v", u, err)
+			continue
+		}
+
+		transport := &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		}
+
 		proxies[i] = &Proxy{
 			URL:        u,
 			Alive:      true,
@@ -49,6 +61,11 @@ func LoadConfig(path string) (*Pool, error) {
 			Timeout:    time.Duration(cfg.TimeoutSeconds) * time.Second,
 			UsageCount: 0,
 			FailCount:  0,
+			transport:  transport,
+			client: &http.Client{
+				Timeout:   time.Duration(cfg.TimeoutSeconds) * time.Second,
+				Transport: transport,
+			},
 		}
 	}
 
@@ -90,22 +107,20 @@ func (p *Pool) HealthCheck(timeout time.Duration) {
 	var wg sync.WaitGroup
 	for _, proxy := range proxies {
 		wg.Add(1)
-			go func(pr *Proxy) {
+		go func(pr *Proxy) {
 			defer wg.Done()
 			if pr.Test(timeout) {
-					pr.mu.Lock()
-					pr.FailCount = 0
-					pr.Alive = true
-					pr.mu.Unlock()
-					log.Printf("Health check OK: %s", pr.URL)
+				pr.mu.Lock()
+				pr.FailCount = 0
+				pr.mu.Unlock()
+				log.Printf("Health check OK: %s", pr.URL)
 			} else {
-					pr.mu.Lock()
-					pr.FailCount++
-					if pr.FailCount >= 3 {
-						pr.Alive = false
-						log.Printf("Proxy marked dead after 3 fails: %s", pr.URL)
-					}
-					pr.mu.Unlock()
+				pr.mu.Lock()
+				pr.FailCount++
+				if pr.FailCount >= 3 {
+					log.Printf("Proxy marked dead after 3 fails: %s", pr.URL)
+				}
+				pr.mu.Unlock()
 			}
 		}(proxy)
 	}
@@ -122,4 +137,12 @@ func (p *Pool) AliveProxies() []*Proxy {
 		}
 	}
 	return alive
+}
+
+func (p *Pool) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, proxy := range p.Proxies {
+		proxy.Close()
+	}
 }
