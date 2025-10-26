@@ -2,11 +2,11 @@ BINARY_NAME=proxy-pool
 
 
 run:
-	go run ./cmd/server
+	go run .
 
 
 build:
-	go build -o bin/$(BINARY_NAME) ./cmd/server
+	go build -o bin/$(BINARY_NAME) .
 
 
 clean:

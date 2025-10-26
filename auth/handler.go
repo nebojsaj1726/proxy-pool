@@ -8,7 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/nebojsaj1726/proxy-pool/internal/db"
+	"github.com/nebojsaj1726/proxy-pool/db"
 	"golang.org/x/crypto/bcrypt"
 )
 

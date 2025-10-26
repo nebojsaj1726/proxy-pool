@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/nebojsaj1726/proxy-pool/internal/app"
+	"github.com/nebojsaj1726/proxy-pool/app"
 )
 
 func main() {

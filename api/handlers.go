@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/nebojsaj1726/proxy-pool/internal/core"
+	"github.com/nebojsaj1726/proxy-pool/core"
 )
 
 func ListProxiesHandler(pool core.Pooler) http.HandlerFunc {
@@ -15,8 +15,8 @@ func ListProxiesHandler(pool core.Pooler) http.HandlerFunc {
 			LastTest string `json:"last_test"`
 		}
 
-	w.Header().Set("Content-Type", "application/json")
-	alive := pool.AliveProxies()
+		w.Header().Set("Content-Type", "application/json")
+		alive := pool.AliveProxies()
 		resp := make([]proxyInfo, len(alive))
 		for i, p := range alive {
 			snap := p.Snapshot()
@@ -27,14 +27,14 @@ func ListProxiesHandler(pool core.Pooler) http.HandlerFunc {
 			}
 		}
 
-	_ = json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
 func AllocateProxyHandler(pool core.Pooler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	proxy, err := pool.Allocate()
+		w.Header().Set("Content-Type", "application/json")
+		proxy, err := pool.Allocate()
 		if err != nil {
 			http.Error(w, "no alive proxies", http.StatusServiceUnavailable)
 			return

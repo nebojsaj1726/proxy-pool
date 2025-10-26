@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/nebojsaj1726/proxy-pool/internal/api"
-	"github.com/nebojsaj1726/proxy-pool/internal/auth"
-	"github.com/nebojsaj1726/proxy-pool/internal/core"
-	"github.com/nebojsaj1726/proxy-pool/internal/db"
-	"github.com/nebojsaj1726/proxy-pool/internal/middleware"
+	"github.com/nebojsaj1726/proxy-pool/api"
+	"github.com/nebojsaj1726/proxy-pool/auth"
+	"github.com/nebojsaj1726/proxy-pool/core"
+	"github.com/nebojsaj1726/proxy-pool/db"
+	"github.com/nebojsaj1726/proxy-pool/health"
+	"github.com/nebojsaj1726/proxy-pool/middleware"
 )
 
 type App struct {
@@ -19,6 +20,7 @@ type App struct {
 	Pool   core.Pooler
 	Mux    *http.ServeMux
 	Server *http.Server
+	Health *health.Manager
 }
 
 func NewApp() (*App, error) {
@@ -31,12 +33,8 @@ func NewApp() (*App, error) {
 		return nil, err
 	}
 
-	go func() {
-		for {
-			pool.HealthCheck(3 * time.Second)
-			time.Sleep(10 * time.Second)
-		}
-	}()
+	healthManager := health.New(pool, 5*time.Second)
+	healthManager.Start()
 
 	mux := http.NewServeMux()
 
@@ -64,6 +62,7 @@ func NewApp() (*App, error) {
 		Pool:   pool,
 		Mux:    mux,
 		Server: server,
+		Health: healthManager,
 	}, nil
 }
 
@@ -76,5 +75,10 @@ func (a *App) Stop() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = a.Server.Shutdown(ctx)
+
+	if a.Health != nil {
+		a.Health.Stop()
+	}
+
 	log.Println("Server stopped gracefully")
 }
