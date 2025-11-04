@@ -54,14 +54,16 @@ func LoadConfig(path string) (*Pool, error) {
 		}
 
 		proxies[i] = &Proxy{
-			URL:        u,
-			Alive:      true,
-			LastTest:   time.Now(),
-			CheckURL:   cfg.HealthCheckURL,
-			Timeout:    time.Duration(cfg.TimeoutSeconds) * time.Second,
-			UsageCount: 0,
-			FailCount:  0,
-			transport:  transport,
+			URL:          u,
+			Alive:        true,
+			LastTest:     time.Now(),
+			CheckURL:     cfg.HealthCheckURL,
+			Timeout:      time.Duration(cfg.TimeoutSeconds) * time.Second,
+			UsageCount:   0,
+			FailCount:    0,
+			SuccessCount: 0,
+			Score:        6,
+			transport:    transport,
 			client: &http.Client{
 				Timeout:   time.Duration(cfg.TimeoutSeconds) * time.Second,
 				Transport: transport,
@@ -77,14 +79,24 @@ func (p *Pool) Allocate() (*Proxy, error) {
 	defer p.mu.Unlock()
 
 	var chosen *Proxy
+	highestScore := -1000
 	minUsage := int(^uint(0) >> 1)
 
 	for _, proxy := range p.Proxies {
-		if proxy.Alive && proxy.UsageCount <= minUsage {
-			if proxy.UsageCount < minUsage || chosen == nil {
-				chosen = proxy
-				minUsage = proxy.UsageCount
-			}
+		proxy.mu.Lock()
+		score := proxy.Score
+		alive := proxy.Alive
+		usage := proxy.UsageCount
+		proxy.mu.Unlock()
+
+		if !alive || score <= 0 {
+			continue
+		}
+
+		if score > highestScore || (score == highestScore && usage < minUsage) {
+			chosen = proxy
+			highestScore = score
+			minUsage = usage
 		}
 	}
 
@@ -109,18 +121,22 @@ func (p *Pool) HealthCheck(timeout time.Duration) {
 		wg.Add(1)
 		go func(pr *Proxy) {
 			defer wg.Done()
-			if pr.Test(timeout) {
-				pr.mu.Lock()
-				pr.FailCount = 0
-				pr.mu.Unlock()
-				log.Printf("Health check OK: %s", pr.URL)
+
+			pr.DecayScore()
+			prevAlive := pr.Alive
+			pr.Test(timeout)
+
+			pr.mu.Lock()
+			status := pr.Alive
+			score := pr.Score
+			pr.mu.Unlock()
+
+			if status && !prevAlive {
+				log.Printf("Proxy recovered: %s (score=%d)", pr.URL, score)
+			} else if !status && prevAlive {
+				log.Printf("Proxy degraded: %s (score=%d)", pr.URL, score)
 			} else {
-				pr.mu.Lock()
-				pr.FailCount++
-				if pr.FailCount >= 3 {
-					log.Printf("Proxy marked dead after 3 fails: %s", pr.URL)
-				}
-				pr.mu.Unlock()
+				log.Printf("Proxy check: %s (alive=%t, score=%d)", pr.URL, status, score)
 			}
 		}(proxy)
 	}
