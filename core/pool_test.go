@@ -1,16 +1,30 @@
 package core
 
 import (
+	"net/http"
 	"sync"
 	"testing"
+	"time"
 )
 
 func newTestPool() *Pool {
 	return &Pool{
 		Proxies: []*Proxy{
-			{URL: "http://127.0.0.1:8888", Alive: true},
-			{URL: "http://127.0.0.1:8889", Alive: true},
+			newTestProxy("http://127.0.0.1:8888"),
+			newTestProxy("http://127.0.0.1:8889"),
 		},
+	}
+}
+
+func newTestProxy(url string) *Proxy {
+	return &Proxy{
+		URL:       url,
+		Alive:     true,
+		Score:     6,
+		LastTest:  time.Now(),
+		Timeout:   2 * time.Second,
+		transport: &http.Transport{},
+		client:    &http.Client{},
 	}
 }
 
