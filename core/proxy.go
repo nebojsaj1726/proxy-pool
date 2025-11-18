@@ -17,10 +17,11 @@ type Proxy struct {
 	UsageCount   int
 	FailCount    int
 	SuccessCount int
-	Score        int
+	Score        float64
 	mu           sync.Mutex
 	transport    *http.Transport
 	client       *http.Client
+	LatencyMS    int
 }
 
 type ProxySnapshot struct {
@@ -35,6 +36,11 @@ func (p *Proxy) Test(timeout time.Duration) bool {
 	checkURL := p.CheckURL
 	p.mu.Unlock()
 
+	if client == nil {
+		p.recordFailure("no http client", nil)
+		return false
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -44,33 +50,42 @@ func (p *Proxy) Test(timeout time.Duration) bool {
 		return false
 	}
 
+	start := time.Now()
 	resp, err := client.Do(req)
+	latency := time.Since(start).Milliseconds()
+
 	if err != nil {
 		p.recordFailure("request failed", err)
 		return false
 	}
-
 	defer resp.Body.Close()
-	alive := resp.StatusCode >= 200 && resp.StatusCode < 300
 
-	if alive {
-		p.recordSuccess()
+	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
+	if ok {
+		p.recordSuccess(int(latency))
 	} else {
 		p.recordFailure("non-200 status", nil)
 	}
-	return alive
+	return ok
 }
 
-func (p *Proxy) recordSuccess() {
+func (p *Proxy) recordSuccess(latencyMS int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	const successGain = 0.4
+	const decay = 0.995
+	const maxScore = 10.0
+
 	p.SuccessCount++
-	p.Score++
-	if p.Score > 10 {
-		p.Score = 10
+	p.LatencyMS = latencyMS
+
+	p.Score = p.Score*decay + successGain
+	if p.Score > maxScore {
+		p.Score = maxScore
 	}
-	p.Alive = p.Score > 0
+
+	p.Alive = true
 	p.LastTest = time.Now()
 }
 
@@ -78,12 +93,24 @@ func (p *Proxy) recordFailure(reason string, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	const failurePenalty = 0.7
+	const decay = 0.995
+	const minScore = -5.0
+	const softCap = 3
+
 	p.FailCount++
-	p.Score -= 2
-	if p.Score < -5 {
-		p.Score = -5
+
+	penalty := failurePenalty
+	if p.FailCount <= softCap {
+		penalty *= 0.5
 	}
-	p.Alive = p.Score > 0
+
+	p.Score = p.Score*decay - penalty
+	if p.Score < minScore {
+		p.Score = minScore
+	}
+
+	p.Alive = false
 	p.LastTest = time.Now()
 
 	if err != nil {
@@ -98,16 +125,18 @@ func (p *Proxy) DecayScore() {
 	defer p.mu.Unlock()
 
 	const decayInterval = 10 * time.Minute
+	const decayStep = 0.5
 
-	inactive := time.Since(p.LastTest)
-	decayPoints := int(inactive / decayInterval)
-	if decayPoints > 0 {
-		p.Score -= decayPoints
-		if p.Score < -5 {
-			p.Score = -5
-		}
-		p.Alive = p.Score > 0
-		p.LastTest = time.Now()
+	elapsed := time.Since(p.LastTest)
+	if elapsed < decayInterval {
+		return
+	}
+
+	decayPoints := float64(elapsed / decayInterval)
+	p.Score -= decayPoints * decayStep
+
+	if p.Score < -5 {
+		p.Score = -5
 	}
 }
 

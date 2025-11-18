@@ -81,9 +81,12 @@ func LoginHandler(store db.UserStore) http.HandlerFunc {
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"token": tokenString,
-		})
+		}); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 

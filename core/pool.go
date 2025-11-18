@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"sync"
 	"time"
 
@@ -41,8 +42,8 @@ func LoadConfig(path string) (*Pool, error) {
 		return nil, err
 	}
 
-	proxies := make([]*Proxy, len(cfg.Proxies))
-	for i, u := range cfg.Proxies {
+	proxies := make([]*Proxy, 0, len(cfg.Proxies))
+	for _, u := range cfg.Proxies {
 		proxyURL, err := url.Parse(u)
 		if err != nil {
 			log.Printf("Skipping invalid proxy URL %s: %v", u, err)
@@ -53,7 +54,7 @@ func LoadConfig(path string) (*Pool, error) {
 			Proxy: http.ProxyURL(proxyURL),
 		}
 
-		proxies[i] = &Proxy{
+		proxies = append(proxies, &Proxy{
 			URL:          u,
 			Alive:        true,
 			LastTest:     time.Now(),
@@ -68,7 +69,7 @@ func LoadConfig(path string) (*Pool, error) {
 				Timeout:   time.Duration(cfg.TimeoutSeconds) * time.Second,
 				Transport: transport,
 			},
-		}
+		})
 	}
 
 	return &Pool{Proxies: proxies}, nil
@@ -78,35 +79,43 @@ func (p *Pool) Allocate() (*Proxy, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	var chosen *Proxy
-	highestScore := -1000
-	minUsage := int(^uint(0) >> 1)
+	type candidate struct {
+		proxy *Proxy
+		score float64
+		use   int
+	}
+
+	candidates := make([]candidate, 0, len(p.Proxies))
 
 	for _, proxy := range p.Proxies {
 		proxy.mu.Lock()
-		score := proxy.Score
-		alive := proxy.Alive
-		usage := proxy.UsageCount
+		if proxy.Alive {
+			candidates = append(candidates, candidate{
+				proxy: proxy,
+				score: proxy.Score,
+				use:   proxy.UsageCount,
+			})
+		}
 		proxy.mu.Unlock()
-
-		if !alive || score <= 0 {
-			continue
-		}
-
-		if score > highestScore || (score == highestScore && usage < minUsage) {
-			chosen = proxy
-			highestScore = score
-			minUsage = usage
-		}
 	}
 
-	if chosen == nil {
+	if len(candidates) == 0 {
 		return nil, errors.New("no alive proxies")
 	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].score == candidates[j].score {
+			return candidates[i].use < candidates[j].use
+		}
+		return candidates[i].score > candidates[j].score
+	})
+
+	chosen := candidates[0].proxy
 
 	chosen.mu.Lock()
 	chosen.UsageCount++
 	chosen.mu.Unlock()
+
 	return chosen, nil
 }
 
@@ -123,7 +132,7 @@ func (p *Pool) HealthCheck(timeout time.Duration) {
 			defer wg.Done()
 
 			pr.DecayScore()
-			prevAlive := pr.Alive
+			prevAlive := pr.Snapshot().Alive
 			pr.Test(timeout)
 
 			pr.mu.Lock()
@@ -132,11 +141,11 @@ func (p *Pool) HealthCheck(timeout time.Duration) {
 			pr.mu.Unlock()
 
 			if status && !prevAlive {
-				log.Printf("Proxy recovered: %s (score=%d)", pr.URL, score)
+				log.Printf("Proxy recovered: %s (score=%.1f)", pr.URL, score)
 			} else if !status && prevAlive {
-				log.Printf("Proxy degraded: %s (score=%d)", pr.URL, score)
+				log.Printf("Proxy degraded: %s (score=%.1f)", pr.URL, score)
 			} else {
-				log.Printf("Proxy check: %s (alive=%t, score=%d)", pr.URL, status, score)
+				log.Printf("Proxy check: %s (alive=%t, score=%.1f)", pr.URL, status, score)
 			}
 		}(proxy)
 	}
@@ -161,4 +170,19 @@ func (p *Pool) Close() {
 	for _, proxy := range p.Proxies {
 		proxy.Close()
 	}
+}
+
+func (p *Proxy) RebuildHTTPClient() error {
+	proxyURL, err := url.Parse(p.URL)
+	if err != nil {
+		return err
+	}
+
+	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+	p.transport = transport
+	p.client = &http.Client{
+		Timeout:   p.Timeout,
+		Transport: transport,
+	}
+	return nil
 }
