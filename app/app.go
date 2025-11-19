@@ -83,9 +83,11 @@ func NewApp() (*App, error) {
 
 	protected := http.NewServeMux()
 	protected.Handle("/proxies", api.ListProxiesHandler(pool))
+	protected.Handle("/proxies/stats", api.StatsHandler(pool))
 	protected.Handle("/allocate", api.AllocateProxyHandler(pool))
 
 	mux.Handle("/proxies", auth.JWTMiddleware(protected))
+	mux.Handle("/proxies/stats", auth.JWTMiddleware(protected))
 	mux.Handle("/allocate", auth.JWTMiddleware(protected))
 
 	server := &http.Server{

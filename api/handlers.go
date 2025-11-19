@@ -45,3 +45,11 @@ func AllocateProxyHandler(pool core.Pooler) http.HandlerFunc {
 		})
 	}
 }
+
+func StatsHandler(pool core.Pooler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stats := pool.Snapshots()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(stats)
+	})
+}

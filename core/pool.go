@@ -18,6 +18,7 @@ type Pooler interface {
 	Allocate() (*Proxy, error)
 	HealthCheck(timeout time.Duration)
 	AliveProxies() []*Proxy
+	Snapshots() []ProxyStats
 }
 
 type Pool struct {
@@ -29,6 +30,17 @@ type Config struct {
 	HealthCheckURL string   `yaml:"health_check_url"`
 	TimeoutSeconds int      `yaml:"timeout_seconds"`
 	Proxies        []string `yaml:"proxies"`
+}
+
+type ProxyStats struct {
+	URL          string  `json:"url"`
+	Alive        bool    `json:"alive"`
+	LastTest     string  `json:"last_test"`
+	Score        float64 `json:"score"`
+	UsageCount   int     `json:"usage_count"`
+	FailCount    int     `json:"fail_count"`
+	SuccessCount int     `json:"success_count"`
+	LatencyMS    int     `json:"latency_ms"`
 }
 
 func LoadConfig(path string) (*Pool, error) {
@@ -185,4 +197,26 @@ func (p *Proxy) RebuildHTTPClient() error {
 		Transport: transport,
 	}
 	return nil
+}
+
+func (p *Pool) Snapshots() []ProxyStats {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	stats := make([]ProxyStats, len(p.Proxies))
+	for i, pr := range p.Proxies {
+		pr.mu.Lock()
+		stats[i] = ProxyStats{
+			URL:          pr.URL,
+			Alive:        pr.Alive,
+			LastTest:     pr.LastTest.Format(time.RFC3339),
+			Score:        pr.Score,
+			UsageCount:   pr.UsageCount,
+			FailCount:    pr.FailCount,
+			SuccessCount: pr.SuccessCount,
+			LatencyMS:    pr.LatencyMS,
+		}
+		pr.mu.Unlock()
+	}
+	return stats
 }
