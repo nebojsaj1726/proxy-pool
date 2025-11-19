@@ -14,6 +14,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Pooler defines the behavior of a proxy pool.
+// It allows selecting (allocating) a proxy, running health checks,
+// returning alive proxies, and obtaining read-only snapshots.
 type Pooler interface {
 	Allocate() (*Proxy, error)
 	HealthCheck(timeout time.Duration)
@@ -87,6 +90,13 @@ func LoadConfig(path string) (*Pool, error) {
 	return &Pool{Proxies: proxies}, nil
 }
 
+// Allocate selects the best available proxy.
+// Selection rules:
+//  1. Only Alive proxies are considered
+//  2. Highest Score wins
+//  3. On score tie, proxy with lower UsageCount is preferred
+//
+// Thread-safe.
 func (p *Pool) Allocate() (*Proxy, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -131,6 +141,9 @@ func (p *Pool) Allocate() (*Proxy, error) {
 	return chosen, nil
 }
 
+// HealthCheck performs a concurrent check of all proxies using Proxy.Test().
+// It applies score decay, logs status transitions (recovered/degraded),
+// and updates latency, score, alive state, etc.
 func (p *Pool) HealthCheck(timeout time.Duration) {
 	p.mu.Lock()
 	proxies := make([]*Proxy, len(p.Proxies))

@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+// Proxy represents a single upstream proxy and maintains:
+//   - health information
+//   - score (quality/priority)
+//   - latency statistics
+//   - usage counts
+//   - internal http.Client configured to route through the proxy
+//
+// All mutable fields are protected by the internal mutex (mu).
 type Proxy struct {
 	URL          string
 	Alive        bool
