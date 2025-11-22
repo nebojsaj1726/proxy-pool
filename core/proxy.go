@@ -128,26 +128,6 @@ func (p *Proxy) recordFailure(reason string, err error) {
 	}
 }
 
-func (p *Proxy) DecayScore() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	const decayInterval = 10 * time.Minute
-	const decayStep = 0.5
-
-	elapsed := time.Since(p.LastTest)
-	if elapsed < decayInterval {
-		return
-	}
-
-	decayPoints := float64(elapsed / decayInterval)
-	p.Score -= decayPoints * decayStep
-
-	if p.Score < -5 {
-		p.Score = -5
-	}
-}
-
 func (p *Proxy) Snapshot() ProxySnapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()

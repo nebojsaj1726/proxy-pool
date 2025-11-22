@@ -156,7 +156,6 @@ func (p *Pool) HealthCheck(timeout time.Duration) {
 		go func(pr *Proxy) {
 			defer wg.Done()
 
-			pr.DecayScore()
 			prevAlive := pr.Snapshot().Alive
 			pr.Test(timeout)
 
