@@ -91,8 +91,9 @@ func NewApp() (*App, error) {
 	mux.Handle("/allocate", auth.JWTMiddleware(protected))
 
 	server := &http.Server{
-		Addr:    ":8080",
-		Handler: middleware.LoggingMiddleware(mux),
+		Addr: ":8080",
+		Handler: middleware.CORS(
+			middleware.LoggingMiddleware(mux)),
 	}
 
 	return &App{

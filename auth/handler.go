@@ -44,7 +44,12 @@ func RegisterHandler(store db.UserStore) http.HandlerFunc {
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"message": "user created successfully",
+			"user_id": id,
+		})
 	}
 }
 
