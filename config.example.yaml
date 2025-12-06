@@ -1,0 +1,10 @@
+health_check_url: "https://httpbin.org/ip"
+
+# Timeout in seconds for proxy health checks
+timeout_seconds: 5
+
+# Example proxies
+proxies:
+  - "http://34.123.45.67:8080"
+  - "http://52.14.23.89:3128"
+  - "http://127.0.0.1:8888"
