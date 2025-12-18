@@ -1,13 +1,12 @@
-# Proxy Pool API
+# Proxy Pool
 
-A Go-based proxy pool and authentication service with an optional web dashboard.  
 Manages HTTP proxies, performs health checks, stores their state in SQLite, and provides authenticated endpoints for allocation and monitoring.
 
 ---
 
 ## Features
 
-- Authenticated proxy allocation and monitoring API
+- Proxy allocation and monitoring API
 - Automatic health checks for proxies
 - Maintains proxy stats: alive/dead status, score, usage, success/fail counts, latency
 - SQLite database storage
